@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inventaire Caméra</title>
+<style>
+/* Layout: two columns on PC — live camera station on the left, results and stock register on the right; stacked on narrow screens. */
+:root{
+  --bg:#eef3f2; --surface:#fff; --ink:#152626; --muted:#5b6f6e; --line:#d3dedd;
+  --accent:#0f6b63; --accent-ink:#fff; --accent-soft:#dff0ed;
+  --ok:#1f7a3f; --ok-bg:#e1f3e7; --warn:#8a5a00; --warn-bg:#fbefd2; --bad:#a32020; --bad-bg:#fbe2df;
+  --body:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif; --mono:Consolas,"Cascadia Mono",ui-monospace,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d1615; --surface:#142120; --ink:#e2eeec; --muted:#93a9a7; --line:#28403d;
+  --accent:#4fbfb2; --accent-ink:#05201c; --accent-soft:#163430;
+  --ok:#7fd69c; --ok-bg:#153122; --warn:#f0c46a; --warn-bg:#3a2c0f; --bad:#ff9a8f; --bad-bg:#3d1714; color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--body)}
+.wrap{max-width:1400px;margin:0 auto;padding:20px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px));display:grid;gap:18px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:12px}
+h1{margin:0;font-size:28px;font-weight:700;letter-spacing:-.01em}
+.sub{margin:0;color:var(--muted)}
+h2{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:18px;align-items:start}
+@media (max-width:980px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;min-width:0}
+.btn{font:600 14px var(--body);border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:9px 14px;cursor:pointer;min-height:40px}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.stage{position:relative;background:#000;border-radius:8px;overflow:hidden;aspect-ratio:4/3;max-width:100%}
+.stage video{width:100%;height:100%;object-fit:cover;display:block}
+.stage .badge{position:absolute;left:10px;top:10px;font:700 13px var(--body);padding:6px 12px;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;display:flex;gap:8px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:#9aa}
+.dot.wait{background:#9aa}.dot.seen{background:#f0c46a}.dot.cap{background:#4fbfb2}.dot.ai{background:#7aa7ff;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dot.ai{animation:none}}
+.stage .angles{position:absolute;right:10px;bottom:10px;display:flex;gap:6px}
+.stage .angles img{width:64px;height:48px;object-fit:cover;border-radius:5px;border:2px solid #4fbfb2}
+.meter{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+.hint{margin:0;color:var(--muted);font-size:13px}
+.status{font-size:14px;padding:10px 12px;border-radius:8px;background:var(--accent-soft)}
+.status.err{background:var(--bad-bg);color:var(--bad)}
+details{border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;font-weight:600}
+.set{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px}
+label{display:grid;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+label.chk{display:flex;align-items:center;gap:8px;color:var(--ink);font-weight:500}
+input,select{font:14px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:8px 10px;min-height:38px;width:100%}
+input[type=checkbox]{width:18px;min-height:18px}
+input.mono{font-family:var(--mono)}
+.last{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.src{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;justify-self:start}
+.src.boite{background:var(--ok-bg);color:var(--ok)}.src.internet{background:var(--accent-soft);color:var(--accent)}
+.src.estime,.src.inconnu{background:var(--warn-bg);color:var(--warn)}
+.stats{display:flex;flex-wrap:wrap;gap:16px;color:var(--muted);font-size:14px}
+.stats b{color:var(--ink);font-size:17px;font-variant-numeric:tabular-nums}
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:820px;font-size:14px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:9px 10px;background:var(--bg);border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tr.flash td{background:var(--accent-soft)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-size:13px}
+.pname{font-weight:600}.brand{color:var(--muted);font-size:13px}
+.pill{display:inline-block;margin-top:3px;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.qty{display:inline-flex;align-items:center;gap:6px}
+.qty button,.del{width:28px;height:28px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;font-weight:700}
+.del:hover{color:var(--bad);border-color:var(--bad)}
+.empty{text-align:center;color:var(--muted);padding:30px}
+.empty strong{display:block;color:var(--ink);font-size:16px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Inventaire Caméra</h1>
+      <p class="sub">Présentez chaque coffret devant la caméra et tournez-le lentement. Le produit est reconnu puis enregistré automatiquement.</p>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="cols">
+    <!-- CAMERA STATION -->
+    <section class="panel" aria-labelledby="h-cam">
+      <h2 id="h-cam">Poste de lecture</h2>
+      <div class="stage">
+        <video id="video" autoplay playsinline muted></video>
+        <div class="badge"><span class="dot wait" id="dot"></span><span id="state">Caméra arrêtée</span></div>
+        <div class="angles" id="angles"></div>
+      </div>
+      <div class="meter" title="Présence d'un objet devant la caméra"><i id="meter"></i></div>
+      <div class="row">
+        <button class="btn primary" id="start">Démarrer la caméra</button>
+        <button class="btn" id="calib" disabled>Recalibrer le fond vide</button>
+        <button class="btn" id="manual" disabled>Capturer cet angle</button>
+        <button class="btn" id="now" disabled>Analyser maintenant</button>
+      </div>
+      <div class="status" id="status" hidden></div>
+      <p class="hint">Mode d'emploi : laissez la zone vide au démarrage (calibration). Présentez le coffret, tenez-le immobile une seconde par face : face avant, côté lot et péremption, code-barres. Retirez-le : l'analyse démarre. Passez chaque coffret, même identique : il est compté en plus.</p>
+
+      <details id="settingsBox">
+        <summary>Réglages</summary>
+        <div class="set">
+          <label>Clé API Claude<input id="key" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+          <label>Modèle<select id="model">
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (recommandé)</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5 (plus précis, plus cher)</option>
+            <option value="claude-haiku-5-5">Claude Haiku 5.5 (plus rapide)</option>
+          </select></label>
+          <label>Caméra<select id="camsel"><option value="">Par défaut</option></select></label>
+          <label>Angles par coffret<select id="nAngles"><option>2</option><option selected>3</option><option>4</option></select></label>
+          <label>Sensibilité de détection<input id="sens" type="range" min="1" max="10" value="5"></label>
+          <label class="chk"><input id="autosave" type="checkbox" checked> Enregistrer sans confirmation</label>
+          <label class="chk"><input id="websearch" type="checkbox" checked> Chercher sur Internet si le nombre de flacons manque</label>
+        </div>
+        <p class="hint" style="margin-top:8px">La clé est enregistrée seulement dans ce navigateur, sur ce PC. Créez-la sur console.anthropic.com (facturation séparée de votre abonnement Claude).</p>
+      </details>
+    </section>
+
+    <!-- RESULTS -->
+    <div style="display:grid;gap:18px;min-width:0">
+      <section class="panel" aria-labelledby="h-last">
+        <div class="row" style="justify-content:space-between">
+          <h2 id="h-last">Dernier produit lu</h2>
+          <span class="src" id="l-src" hidden></span>
+        </div>
+        <form class="last" id="lastForm" autocomplete="off">
+          <label>Nom du produit<input id="l-nom"></label>
+          <label>Marque<input id="l-marque"></label>
+          <label>N° de lot<input id="l-lot" class="mono"></label>
+          <label>Péremption<input id="l-per" type="date"></label>
+          <label>Flacons / coffret<input id="l-flac" type="number" min="0"></label>
+          <label>Code-barres<input id="l-cb" class="mono"></label>
+        </form>
+        <p class="hint" id="l-note"></p>
+        <div class="row" style="justify-content:flex-end">
+          <button class="btn" id="l-undo" disabled>Annuler cet ajout</button>
+          <button class="btn primary" id="l-save" disabled>Enregistrer / corriger</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-stock">
+        <div class="row" style="justify-content:space-between">
+          <h2 id="h-stock">Stock enregistré</h2>
+          <div class="row">
+            <input id="q" type="search" placeholder="Rechercher…" style="width:200px" aria-label="Rechercher">
+            <button class="btn" id="export">Exporter Excel</button>
+            <button class="btn" id="clearAll">Vider</button>
+          </div>
+        </div>
+        <div class="tablebox"><table>
+          <thead><tr><th>Produit</th><th>Lot</th><th>Péremption</th><th class="num">Flacons / coffret</th><th class="num">Coffrets</th><th class="num">Total flacons</th><th>Code-barres</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table></div>
+        <div class="row" id="clearConfirm" hidden>
+          <span>Supprimer tout l'inventaire de ce PC ? Exportez-le d'abord si besoin.</span>
+          <button class="btn" id="clearYes" style="color:var(--bad);border-color:var(--bad)">Tout supprimer</button>
+          <button class="btn" id="clearNo">Garder</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<canvas id="small" width="64" height="48" hidden></canvas>
+<canvas id="big" hidden></canvas>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+
+/* ================= state ================= */
+let items = store.get("inv.items", []);
+let lastId = null, lastWasNew = false;
+let stream = null, bg = null, prev = null, lastCapSmall = null;
+let stableSince = 0, absentSince = 0, busy = false;
+let session = [];   // captured angles: {blob,url,small}
+let barcodeSeen = "";
+const detector = ("BarcodeDetector" in window) ? safeDetector() : null;
+function safeDetector(){ try{ return new BarcodeDetector({formats:["ean_13","ean_8","code_128","data_matrix","qr_code","upc_a","code_39"]}); }catch(e){ try{ return new BarcodeDetector(); }catch(e2){ return null; } } }
+
+/* ================= settings ================= */
+const S = store.get("inv.settings", {});
+$("key").value = S.key || "";
+if (S.model) $("model").value = S.model;
+if (S.nAngles) $("nAngles").value = S.nAngles;
+if (S.sens) $("sens").value = S.sens;
+$("autosave").checked = S.autosave !== false;
+$("websearch").checked = S.websearch !== false;
+function saveSettings(){
+  store.set("inv.settings", {key:$("key").value.trim(), model:$("model").value, nAngles:$("nAngles").value,
+    sens:$("sens").value, autosave:$("autosave").checked, websearch:$("websearch").checked, cam:$("camsel").value});
+}
+["key","model","nAngles","sens","autosave","websearch"].forEach(id=>$(id).addEventListener("change", saveSettings));
+if (!S.key) $("settingsBox").open = true;
+
+function status(msg, err){ const s=$("status"); s.hidden=!msg; s.textContent=msg||""; s.classList.toggle("err",!!err); }
+function setState(txt, cls){ $("state").textContent = txt; $("dot").className = "dot " + cls; }
+
+/* ================= camera ================= */
+async function listCams(){
+  try{
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");
+    const sel = $("camsel"), cur = S.cam || sel.value;
+    sel.innerHTML = '<option value="">Par défaut</option>' + devs.map((d,i)=>`<option value="${d.deviceId}">${d.label||"Caméra "+(i+1)}</option>`).join("");
+    sel.value = devs.some(d=>d.deviceId===cur) ? cur : "";
+  }catch(e){}
+}
+async function startCam(){
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  const id = $("camsel").value;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video: id ? {deviceId:{exact:id}, width:{ideal:1920}, height:{ideal:1080}} : {facingMode:"environment", width:{ideal:1920}, height:{ideal:1080}}, audio:false});
+  }catch(e){
+    status("La caméra n'a pas pu démarrer. Autorisez l'accès à la caméra (dans l'application : Paramètres Android → Applications → Inventaire Caméra → Autorisations), puis touchez à nouveau Démarrer.", true);
+    return;
+  }
+  $("video").srcObject = stream;
+  await listCams();
+  ["calib","manual","now"].forEach(i=>$(i).disabled=false);
+  $("start").textContent = "Redémarrer la caméra";
+  bg = null; status("Calibration : laissez la zone devant la caméra vide…");
+  setState("Calibration…","wait");
+  setTimeout(calibrate, 1500);
+  if (!loopOn){ loopOn = true; setInterval(tick, 150); }
+}
+$("start").onclick = startCam;
+$("camsel").onchange = () => { saveSettings(); if (stream) startCam(); };
+$("calib").onclick = () => { calibrate(); };
+
+/* ================= motion / presence detection ================= */
+const sctx = $("small").getContext("2d", {willReadFrequently:true});
+let loopOn = false;
+function grab(){
+  const v = $("video"); if (!v.videoWidth) return null;
+  sctx.drawImage(v, 0, 0, 64, 48);
+  const d = sctx.getImageData(0,0,64,48).data, g = new Uint8Array(64*48);
+  for (let i=0,j=0;i<d.length;i+=4,j++) g[j] = (d[i]*3 + d[i+1]*6 + d[i+2]) / 10;
+  return g;
+}
+function diff(a,b){ if(!a||!b) return 255; let s=0; for(let i=0;i<a.length;i++) s+=Math.abs(a[i]-b[i]); return s/a.length; }
+function calibrate(){ bg = grab(); session=[]; renderAngles(); lastCapSmall=null; status(""); setState("Prêt : présentez un coffret","wait"); }
+
+function tick(){
+  if (!stream || !bg || busy) return;
+  const g = grab(); if (!g) return;
+  const sens = +$("sens").value;                 // 1..10
+  const presenceT = 22 - sens*1.5;               // 20.5 .. 7
+  const motionT = 2 + sens*0.35;                 // tolerance for "still"
+  const presence = diff(g, bg), motion = diff(g, prev); prev = g;
+  $("meter").style.width = Math.min(100, presence/presenceT*50) + "%";
+  const now = performance.now(), present = presence > presenceT;
+
+  if (present){
+    absentSince = 0;
+    if (motion < motionT){ if(!stableSince) stableSince = now; } else stableSince = 0;
+    const newAngle = !lastCapSmall || diff(g, lastCapSmall) > presenceT*0.8;
+    if (stableSince && now - stableSince > 700 && newAngle && session.length < +$("nAngles").value){
+      capture(g);
+      stableSince = 0;
+    } else if (!session.length) setState(stableSince ? "Tenez immobile…" : "Coffret détecté","seen");
+    else if (session.length < +$("nAngles").value) setState(`Angle ${session.length}/${$("nAngles").value} : tournez le coffret`,"cap");
+    else setState("Angles complets : retirez le coffret","cap");
+  } else {
+    if (!absentSince) absentSince = now;
+    if (session.length && now - absentSince > 900) analyse();
+    else if (!session.length) setState("Prêt : présentez un coffret","wait");
+  }
+}
+
+async function capture(small){
+  const v = $("video"), c = $("big");
+  const scale = Math.min(1, 1600 / Math.max(v.videoWidth, v.videoHeight));
+  c.width = Math.round(v.videoWidth*scale); c.height = Math.round(v.videoHeight*scale);
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  const blob = await new Promise(r=>c.toBlob(r, "image/jpeg", 0.88));
+  lastCapSmall = small || grab();
+  session.push({blob, url:URL.createObjectURL(blob)});
+  renderAngles();
+  setState(`Angle ${session.length}/${$("nAngles").value} capturé`,"cap");
+  if (detector && !barcodeSeen){
+    try{ const r = await detector.detect(c); if (r.length) barcodeSeen = r.map(x=>x.rawValue).sort((a,b)=>b.length-a.length)[0]; }catch(e){}
+  }
+}
+$("manual").onclick = () => { if (!busy) capture(); };
+$("now").onclick = () => { if (session.length) analyse(); else status("Capturez d'abord au moins un angle.", true); };
+function renderAngles(){ $("angles").innerHTML = session.map(s=>`<img src="${s.url}" alt="">`).join(""); }
+
+/* ================= GS1 (DataMatrix médical : GTIN, lot, péremption) ================= */
+function parseGS1(raw){
+  if (!raw) return null;
+  let s = raw.replace(/^\](d2|C1|Q3)/, "");
+  if (s.includes("(")) s = s.replace(/\)/g,"").split("(").filter(Boolean).join("\x1d");
+  const out = {}; let i = 0;
+  const fixed = {"00":18,"01":14,"02":14,"11":6,"13":6,"15":6,"16":6,"17":6};
+  while (i < s.length){
+    if (s[i]==="\x1d"){ i++; continue; }
+    const ai = s.substr(i,2);
+    if (fixed[ai]){ out[ai] = s.substr(i+2, fixed[ai]); i += 2 + fixed[ai]; continue; }
+    if (ai==="10"||ai==="21"||ai==="30"||ai==="91"){
+      let j = s.indexOf("\x1d", i+2); if (j<0) j = s.length;
+      out[ai] = s.slice(i+2, j); i = j; continue;
+    }
+    break;
+  }
+  if (!out["01"]) return null;
+  let per = "";
+  if (out["17"]){ const y="20"+out["17"].slice(0,2), m=out["17"].slice(2,4); let d=out["17"].slice(4,6);
+    if (d==="00") d = String(new Date(+y, +m, 0).getDate()).padStart(2,"0"); per = `${y}-${m}-${d}`; }
+  return {gtin: out["01"], lot: out["10"]||"", peremption: per};
+}
+
+/* ================= AI analysis ================= */
+function blobToB64(b){ return new Promise(r=>{ const f=new FileReader(); f.onload=()=>r(f.result.split(",")[1]); f.readAsDataURL(b); }); }
+
+async function callClaude(content){
+  const key = $("key").value.trim();
+  if (!key) throw {msg:"Ajoutez votre clé API Claude dans Réglages pour lancer l'analyse."};
+  const tools = $("websearch").checked ? [{type:"web_search_20250305", name:"web_search", max_uses:3}] : undefined;
+  let messages = [{role:"user", content}];
+  for (let round=0; round<4; round++){
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+      body: JSON.stringify({model:$("model").value, max_tokens:2000, messages, ...(tools?{tools}:{})})
+    });
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok){
+      const m = data?.error?.message || res.status;
+      if (res.status===401) throw {msg:"Clé API refusée. Vérifiez-la dans Réglages."};
+      if (res.status===429) throw {msg:"Trop de demandes. Patientez une minute puis représentez le coffret."};
+      throw {msg:"L'analyse a échoué ("+m+"). Représentez le coffret."};
+    }
+    if (data.stop_reason === "pause_turn"){ messages = [...messages, {role:"assistant", content:data.content}]; continue; }
+    const text = data.content.filter(b=>b.type==="text").map(b=>b.text).join("");
+    const urls = [...new Set(data.content.flatMap(b=>(b.citations||[]).map(c=>c.url)))];
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw {msg:"Réponse illisible. Représentez le coffret avec une meilleure lumière."};
+    const obj = JSON.parse(m[0]); obj._urls = urls; return obj;
+  }
+  throw {msg:"L'analyse a pris trop de temps. Représentez le coffret."};
+}
+
+async function analyse(){
+  if (busy || !session.length) return;
+  busy = true; setState("Analyse par l'IA…","ai"); status("Lecture de l'étiquette en cours (10 à 40 secondes)…");
+  const shots = session.slice(); const raw = barcodeSeen; const gs1 = parseGS1(raw);
+  session = []; barcodeSeen = ""; lastCapSmall = null; renderAngles();
+
+  // Fast path: same GS1 code (GTIN + lot) already in stock → just add one coffret, no AI call.
+  if (gs1 && gs1.lot){
+    const hit = items.find(i => i.gtin===gs1.gtin && i.lot===gs1.lot);
+    if (hit){ hit.coffrets++; save(); showLast(hit, true, "Lu par le code DataMatrix : coffret ajouté au même lot."); finish(); return; }
+  }
+  try{
+    const imgs = await Promise.all(shots.map(async s=>({type:"image", source:{type:"base64", media_type:"image/jpeg", data:await blobToB64(s.blob)}})));
+    const prompt = `Ces ${shots.length} photos montrent UN SEUL coffret (réactif de laboratoire, consommable, médicament ou produit de contraste) d'une clinique, sous plusieurs angles.
+${raw ? "Code lu par le scanner : "+raw+"\n" : ""}${gs1 ? "Décodage GS1 : GTIN "+gs1.gtin+", lot "+gs1.lot+", péremption "+gs1.peremption+" (prioritaire sur la lecture des photos).\n" : ""}
+Extrais : nom commercial du produit, marque/fabricant, référence catalogue, numéro de lot (LOT), date de péremption (EXP), nombre de flacons/ampoules/unités dans le coffret, code-barres (chiffres EAN/GTIN).
+Règles :
+- Péremption au format AAAA-MM-JJ ; si seul le mois est indiqué, mets le dernier jour du mois.
+- Nombre de flacons : lis-le sur la boîte ("2 x 50 mL" = 2, "R1 4 x 20 mL + R2 1 x 20 mL" = 5, "boîte de 10" = 10) → flacons_source "boite".
+- S'il n'est pas imprimé${$("websearch").checked ? ", cherche sur Internet (site du fabricant, fiche technique, catalogue) avec la marque et la référence → flacons_source \"internet\"" : ""}. Sinon, d'après ta connaissance → "estime". Introuvable → null et "inconnu".
+- Ne devine jamais un lot ni une date : chaîne vide si illisible.
+Termine ta réponse par ce JSON seul :
+{"nom":"","marque":"","reference":"","lot":"","peremption":"","flacons_par_coffret":null,"flacons_source":"boite","flacons_detail":"","code_barres":""}`;
+    const r = await callClaude([...imgs, {type:"text", text:prompt}]);
+    const rec = {
+      nom: [r.nom, r.reference && !(r.nom||"").includes(r.reference) ? "("+r.reference+")" : ""].filter(Boolean).join(" ").trim() || "Produit non identifié",
+      marque: r.marque||"", lot: gs1?.lot || r.lot || "", peremption: gs1?.peremption || (/^\d{4}-\d{2}-\d{2}$/.test(r.peremption||"") ? r.peremption : ""),
+      flacons: Number.isFinite(+r.flacons_par_coffret) && r.flacons_par_coffret!==null ? +r.flacons_par_coffret : null,
+      source: r.flacons_source || "", detail: r.flacons_detail || "", url: r._urls?.[0] || "",
+      codeBarres: (gs1?.gtin || r.code_barres || (raw && /^\d{8,14}$/.test(raw) ? raw : "") || "").replace(/\s/g,""),
+      gtin: gs1?.gtin || "", coffrets: 1
+    };
+    if ($("autosave").checked){
+      const hit = items.find(i => i.lot && i.lot===rec.lot && ((i.codeBarres && i.codeBarres===rec.codeBarres) || i.nom.toLowerCase()===rec.nom.toLowerCase()));
+      if (hit){ hit.coffrets++; save(); showLast(hit, true, "Même produit et même lot : un coffret de plus."); }
+      else { const it = {id:"p"+Date.now(), createdAt:new Date().toISOString(), ...rec}; items.unshift(it); save(); showLast(it, true, ""); }
+    } else {
+      showLast({...rec, id:null}, false, "Vérifiez la fiche puis cliquez sur Enregistrer.");
+    }
+    status("");
+  }catch(e){
+    status(e.msg || "L'analyse a échoué. Représentez le coffret.", true);
+  }
+  shots.forEach(s=>URL.revokeObjectURL(s.url));
+  finish();
+}
+function finish(){ busy = false; setState("Prêt : présentez le coffret suivant","wait"); }
+
+/* ================= last result card ================= */
+const srcLabel = {boite:"Flacons lus sur la boîte", internet:"Flacons trouvés sur Internet", estime:"Flacons estimés, à vérifier", inconnu:"Flacons introuvables"};
+let pendingRec = null;
+function showLast(it, saved, note){
+  lastId = saved ? it.id : null; pendingRec = saved ? null : it;
+  $("l-nom").value = it.nom||""; $("l-marque").value = it.marque||""; $("l-lot").value = it.lot||"";
+  $("l-per").value = it.peremption||""; $("l-flac").value = it.flacons ?? ""; $("l-cb").value = it.codeBarres||"";
+  const s = $("l-src"); s.hidden = !it.source; s.className = "src " + (it.source||""); s.textContent = srcLabel[it.source]||"";
+  const n = $("l-note"); n.textContent = [note, it.detail].filter(Boolean).join(" ");
+  if (it.url){ const a=document.createElement("a"); a.href=it.url; a.target="_blank"; a.rel="noopener"; a.textContent=" Source"; n.append(a); }
+  $("l-save").disabled = false; $("l-undo").disabled = !saved;
+  render(saved ? it.id : null);
+}
+$("l-save").onclick = () => {
+  const f = {nom:$("l-nom").value.trim(), marque:$("l-marque").value.trim(), lot:$("l-lot").value.trim(), peremption:$("l-per").value,
+    flacons:$("l-flac").value===""?null:+$("l-flac").value, codeBarres:$("l-cb").value.trim()};
+  if (!f.nom){ status("Indiquez au moins le nom du produit.", true); return; }
+  if (lastId){ const it = items.find(i=>i.id===lastId); if (it) Object.assign(it, f); }
+  else { const it = {id:"p"+Date.now(), createdAt:new Date().toISOString(), coffrets:1, ...(pendingRec||{}), ...f}; items.unshift(it); lastId = it.id; pendingRec=null; $("l-undo").disabled=false; }
+  save(); render(lastId); status("Fiche enregistrée.");
+};
+$("l-undo").onclick = () => {
+  const it = items.find(i=>i.id===lastId); if (!it) return;
+  if (it.coffrets > 1) it.coffrets--; else items = items.filter(i=>i.id!==lastId);
+  lastId = null; $("l-undo").disabled = true; save(); render(); status("Dernier ajout annulé.");
+};
+
+/* ================= stock table ================= */
+function save(){ store.set("inv.items", items); }
+function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function expiry(d){
+  if (!d) return {txt:"—"};
+  const days = Math.floor((new Date(d+"T00:00:00") - new Date().setHours(0,0,0,0))/864e5);
+  const txt = new Date(d+"T00:00:00").toLocaleDateString("fr-FR");
+  if (days < 0) return {cls:"bad", txt, tag:"Périmé"};
+  if (days <= 90) return {cls:"warn", txt, tag:"Dans "+days+" j"};
+  return {cls:"ok", txt, tag:"Valide"};
+}
+function render(flashId){
+  const q = $("q").value.toLowerCase().trim();
+  const list = items.filter(i=>!q || [i.nom,i.marque,i.lot,i.codeBarres].join(" ").toLowerCase().includes(q));
+  $("rows").innerHTML = !items.length
+    ? `<tr><td colspan="8" class="empty"><strong>Aucun produit pour l'instant</strong>Démarrez la caméra et présentez un premier coffret.</td></tr>`
+    : !list.length ? `<tr><td colspan="8" class="empty"><strong>Aucun résultat</strong>Rien ne correspond à « ${esc(q)} ».</td></tr>`
+    : list.map(i=>{ const e=expiry(i.peremption); const tot = i.flacons!=null ? i.flacons*i.coffrets : "—";
+      return `<tr class="${i.id===flashId?"flash":""}">
+      <td><div class="pname">${esc(i.nom)}</div><div class="brand">${esc(i.marque)}</div></td>
+      <td class="mono">${esc(i.lot)||"—"}</td>
+      <td>${e.txt}${e.tag?`<br><span class="pill ${e.cls}">${e.tag}</span>`:""}</td>
+      <td class="num">${i.flacons??"—"}${i.source && i.source!=="boite" ? `<br><span class="src ${i.source}">${i.source==="internet"?"internet":"à vérifier"}</span>`:""}</td>
+      <td class="num"><span class="qty"><button data-m="${i.id}" aria-label="Retirer un coffret">−</button>${i.coffrets}<button data-p="${i.id}" aria-label="Ajouter un coffret">+</button></span></td>
+      <td class="num"><b>${tot}</b></td>
+      <td class="mono">${esc(i.codeBarres)||"—"}</td>
+      <td><button class="del" data-d="${i.id}" aria-label="Supprimer la ligne">✕</button></td></tr>`; }).join("");
+  const vials = items.reduce((s,i)=>s+(i.flacons!=null?i.flacons*i.coffrets:0),0);
+  const cof = items.reduce((s,i)=>s+i.coffrets,0);
+  const soon = items.filter(i=>expiry(i.peremption).cls==="warn").length, bad = items.filter(i=>expiry(i.peremption).cls==="bad").length;
+  $("stats").innerHTML = `<span><b>${items.length}</b> produits</span><span><b>${cof}</b> coffrets</span><span><b>${vials}</b> flacons</span><span><b style="color:var(--warn)">${soon}</b> &lt; 90 j</span><span><b style="color:var(--bad)">${bad}</b> périmés</span>`;
+}
+$("rows").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if (!b) return;
+  const id = b.dataset.p || b.dataset.m || b.dataset.d; const it = items.find(i=>i.id===id); if (!it) return;
+  if (b.dataset.p) it.coffrets++;
+  if (b.dataset.m) it.coffrets = Math.max(1, it.coffrets-1);
+  if (b.dataset.d){
+    if (b.dataset.armed){ items = items.filter(i=>i.id!==id); }
+    else { b.dataset.armed = "1"; b.textContent = "Sûr ?"; b.style.width = "auto"; b.style.padding="0 8px"; return; }
+  }
+  save(); render();
+});
+$("q").addEventListener("input", ()=>render());
+$("clearAll").onclick = () => { $("clearConfirm").hidden = false; };
+$("clearNo").onclick = () => { $("clearConfirm").hidden = true; };
+$("clearYes").onclick = () => { items = []; save(); render(); $("clearConfirm").hidden = true; };
+
+/* ================= export (CSV lisible par Excel) ================= */
+$("export").onclick = () => {
+  const head = ["Nom","Marque","Lot","Péremption","Flacons par coffret","Source flacons","Coffrets","Total flacons","Code-barres","Ajouté le"];
+  const cell = v => '"'+String(v??"").replace(/"/g,'""')+'"';
+  const lines = [head.map(cell).join(";")].concat(items.map(i=>[i.nom,i.marque,i.lot,i.peremption,i.flacons??"",
+    {boite:"boîte",internet:"internet",estime:"estimé",inconnu:"inconnu"}[i.source]||"manuel",
+    i.coffrets, i.flacons!=null?i.flacons*i.coffrets:"", i.codeBarres?"'"+i.codeBarres:"", (i.createdAt||"").slice(0,10)].map(cell).join(";")));
+  const name = "inventaire-"+new Date().toISOString().slice(0,10)+".csv", text = "\ufeff"+lines.join("\r\n");
+  if (window.AndroidBridge){ AndroidBridge.shareFile(name, text); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type:"text/csv;charset=utf-8"}));
+  a.download = name; a.click();
+};
+
+render();
+if (!navigator.mediaDevices?.getUserMedia) status("Ce navigateur ne donne pas accès à la caméra. Ouvrez ce fichier dans Google Chrome ou Microsoft Edge.", true);
+</script>
+</body>
+</html>
