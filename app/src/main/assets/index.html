@@ -112,19 +112,19 @@ a{color:var(--accent)}
       <details id="settingsBox">
         <summary>Réglages</summary>
         <div class="set">
-          <label>Clé API Claude<input id="key" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
-          <label>Modèle<select id="model">
-            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (recommandé)</option>
-            <option value="claude-opus-5-5">Claude Opus 5.5 (plus précis, plus cher)</option>
-            <option value="claude-haiku-5-5">Claude Haiku 5.5 (plus rapide)</option>
+          <label>Service d'IA<select id="provider">
+            <option value="gemini">Google Gemini (gratuit)</option>
+            <option value="claude">Claude (payant, plus précis)</option>
           </select></label>
+          <label><span id="keyLabel">Clé API</span><input id="key" type="password" autocomplete="off"></label>
+          <label>Modèle<select id="model"></select></label>
           <label>Caméra<select id="camsel"><option value="">Par défaut</option></select></label>
           <label>Angles par coffret<select id="nAngles"><option>2</option><option selected>3</option><option>4</option></select></label>
           <label>Sensibilité de détection<input id="sens" type="range" min="1" max="10" value="5"></label>
           <label class="chk"><input id="autosave" type="checkbox" checked> Enregistrer sans confirmation</label>
           <label class="chk"><input id="websearch" type="checkbox" checked> Chercher sur Internet si le nombre de flacons manque</label>
         </div>
-        <p class="hint" style="margin-top:8px">La clé est enregistrée seulement dans ce navigateur, sur ce PC. Créez-la sur console.anthropic.com (facturation séparée de votre abonnement Claude).</p>
+        <p class="hint" style="margin-top:8px" id="keyHint"></p>
       </details>
     </section>
 
@@ -195,18 +195,66 @@ function safeDetector(){ try{ return new BarcodeDetector({formats:["ean_13","ean
 
 /* ================= settings ================= */
 const S = store.get("inv.settings", {});
-$("key").value = S.key || "";
-if (S.model) $("model").value = S.model;
+const CLAUDE_MODELS = [["claude-sonnet-5-5","Claude Sonnet 5.5 (recommandé)"],["claude-opus-5-5","Claude Opus 5.5 (plus précis)"],["claude-haiku-5-5","Claude Haiku 5.5 (plus rapide)"]];
+const GEMINI_DEFAULT = [["gemini-flash-lite-latest","Gemini Flash-Lite (gratuit, ~500 coffrets/jour)"],["gemini-flash-latest","Gemini Flash (gratuit, ~20 coffrets/jour, plus précis)"]];
+let geminiModels = S.geminiModels || GEMINI_DEFAULT;
+$("provider").value = S.provider || "gemini";
+const keys = {gemini: S.keyGemini || "", claude: S.keyClaude || S.key || ""};
+const models = {gemini: S.modelGemini || "", claude: S.modelClaude || S.model || ""};
+function fillProvider(){
+  const p = $("provider").value;
+  $("key").value = keys[p];
+  $("key").placeholder = p==="gemini" ? "AIza…" : "sk-ant-…";
+  $("keyLabel").textContent = p==="gemini" ? "Clé API Google Gemini" : "Clé API Claude";
+  const list = p==="gemini" ? geminiModels : CLAUDE_MODELS;
+  $("model").innerHTML = list.map(([v,t])=>`<option value="${v}">${t}</option>`).join("");
+  if (models[p] && list.some(m=>m[0]===models[p])) $("model").value = models[p];
+  $("keyHint").textContent = p==="gemini"
+    ? "Gratuit : créez la clé sur aistudio.google.com (bouton « Get API key »), sans carte bancaire. La recherche Internet n'est pas incluse dans l'offre gratuite : le nombre de flacons manquant est estimé et marqué « à vérifier ». La clé reste sur cet appareil."
+    : "Payant : créez la clé sur platform.claude.com (crédit à acheter). La clé reste sur cet appareil.";
+  $("websearch").closest("label").hidden = p==="gemini";
+}
+$("provider").addEventListener("change", ()=>{ fillProvider(); saveSettings(); });
+$("key").addEventListener("input", ()=>{ keys[$("provider").value] = $("key").value.trim(); });
+$("model").addEventListener("change", ()=>{ models[$("provider").value] = $("model").value; });
 if (S.nAngles) $("nAngles").value = S.nAngles;
 if (S.sens) $("sens").value = S.sens;
 $("autosave").checked = S.autosave !== false;
 $("websearch").checked = S.websearch !== false;
 function saveSettings(){
-  store.set("inv.settings", {key:$("key").value.trim(), model:$("model").value, nAngles:$("nAngles").value,
-    sens:$("sens").value, autosave:$("autosave").checked, websearch:$("websearch").checked, cam:$("camsel").value});
+  keys[$("provider").value] = $("key").value.trim(); models[$("provider").value] = $("model").value;
+  store.set("inv.settings", {provider:$("provider").value, keyGemini:keys.gemini, keyClaude:keys.claude,
+    modelGemini:models.gemini, modelClaude:models.claude, geminiModels,
+    nAngles:$("nAngles").value, sens:$("sens").value, autosave:$("autosave").checked, websearch:$("websearch").checked, cam:$("camsel").value});
 }
 ["key","model","nAngles","sens","autosave","websearch"].forEach(id=>$(id).addEventListener("change", saveSettings));
-if (!S.key) $("settingsBox").open = true;
+$("key").addEventListener("change", ()=>{ if ($("provider").value==="gemini") refreshGeminiModels(); });
+fillProvider();
+if (!keys[$("provider").value]) $("settingsBox").open = true;
+
+/* Liste les modèles Gemini réellement disponibles pour cette clé (les noms changent souvent). */
+async function refreshGeminiModels(){
+  const key = keys.gemini; if (!key) return;
+  try{
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {headers:{"x-goog-api-key":key}});
+    if (!r.ok) return;
+    const d = await r.json();
+    const ok = (d.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent"))
+      .map(m=>m.name.replace("models/","")).filter(n=>/^gemini-.*flash/.test(n) && !/image|tts|audio|live|exp|preview|thinking/.test(n));
+    if (!ok.length) return;
+    const lite = ok.filter(n=>/lite/.test(n)), full = ok.filter(n=>!/lite/.test(n));
+    const ver = n => (n.match(/\d+(\.\d+)?/)||["0"])[0]*1;
+    lite.sort((a,b)=>ver(b)-ver(a)); full.sort((a,b)=>ver(b)-ver(a));
+    geminiModels = [
+      ...lite.slice(0,3).map((n,i)=>[n, n+(i===0?" (gratuit, recommandé)":"")]),
+      ...full.slice(0,3).map(n=>[n, n+" (gratuit, moins de demandes par jour)"])
+    ];
+    if (!models.gemini || !geminiModels.some(m=>m[0]===models.gemini)) models.gemini = geminiModels[0][0];
+    if ($("provider").value==="gemini") fillProvider();
+    saveSettings();
+  }catch(e){}
+}
+if (keys.gemini) refreshGeminiModels();
 
 function status(msg, err){ const s=$("status"); s.hidden=!msg; s.textContent=msg||""; s.classList.toggle("err",!!err); }
 function setState(txt, cls){ $("state").textContent = txt; $("dot").className = "dot " + cls; }
@@ -328,7 +376,7 @@ function parseGS1(raw){
 function blobToB64(b){ return new Promise(r=>{ const f=new FileReader(); f.onload=()=>r(f.result.split(",")[1]); f.readAsDataURL(b); }); }
 
 async function callClaude(content){
-  const key = $("key").value.trim();
+  const key = keys.claude;
   if (!key) throw {msg:"Ajoutez votre clé API Claude dans Réglages pour lancer l'analyse."};
   const tools = $("websearch").checked ? [{type:"web_search_20250305", name:"web_search", max_uses:3}] : undefined;
   let messages = [{role:"user", content}];
@@ -355,6 +403,32 @@ async function callClaude(content){
   throw {msg:"L'analyse a pris trop de temps. Représentez le coffret."};
 }
 
+async function callGemini(imgBlobs, prompt){
+  const key = keys.gemini;
+  if (!key) throw {msg:"Ajoutez votre clé Google Gemini dans Réglages (gratuite sur aistudio.google.com)."};
+  const parts = [];
+  for (const b of imgBlobs) parts.push({inline_data:{mime_type:"image/jpeg", data: await blobToB64(b)}});
+  parts.push({text: prompt});
+  const model = $("model").value || "gemini-flash-lite-latest";
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent", {
+    method:"POST", headers:{"content-type":"application/json","x-goog-api-key":key},
+    body: JSON.stringify({contents:[{role:"user", parts}], generationConfig:{temperature:0.1, responseMimeType:"application/json"}})
+  });
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok){
+    const m = data?.error?.message || res.status;
+    if (res.status===400 && /API key/i.test(m)) throw {msg:"Clé Gemini refusée. Vérifiez-la dans Réglages."};
+    if (res.status===403) throw {msg:"Clé Gemini refusée ou service non disponible dans votre pays. Vérifiez la clé dans Réglages."};
+    if (res.status===404) { refreshGeminiModels(); throw {msg:"Ce modèle Gemini n'existe plus. Choisissez-en un autre dans Réglages, puis représentez le coffret."}; }
+    if (res.status===429) throw {msg:"Limite gratuite atteinte (par minute ou par jour). Patientez une minute, ou choisissez le modèle Flash-Lite dans Réglages."};
+    throw {msg:"L'analyse a échoué ("+m+"). Représentez le coffret."};
+  }
+  const text = (data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||"").join("");
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw {msg:"Réponse illisible. Représentez le coffret avec une meilleure lumière."};
+  const obj = JSON.parse(m[0]); obj._urls = []; return obj;
+}
+
 async function analyse(){
   if (busy || !session.length) return;
   busy = true; setState("Analyse par l'IA…","ai"); status("Lecture de l'étiquette en cours (10 à 40 secondes)…");
@@ -367,18 +441,24 @@ async function analyse(){
     if (hit){ hit.coffrets++; save(); showLast(hit, true, "Lu par le code DataMatrix : coffret ajouté au même lot."); finish(); return; }
   }
   try{
-    const imgs = await Promise.all(shots.map(async s=>({type:"image", source:{type:"base64", media_type:"image/jpeg", data:await blobToB64(s.blob)}})));
+    const useGemini = $("provider").value==="gemini";
+    const web = !useGemini && $("websearch").checked;
     const prompt = `Ces ${shots.length} photos montrent UN SEUL coffret (réactif de laboratoire, consommable, médicament ou produit de contraste) d'une clinique, sous plusieurs angles.
 ${raw ? "Code lu par le scanner : "+raw+"\n" : ""}${gs1 ? "Décodage GS1 : GTIN "+gs1.gtin+", lot "+gs1.lot+", péremption "+gs1.peremption+" (prioritaire sur la lecture des photos).\n" : ""}
 Extrais : nom commercial du produit, marque/fabricant, référence catalogue, numéro de lot (LOT), date de péremption (EXP), nombre de flacons/ampoules/unités dans le coffret, code-barres (chiffres EAN/GTIN).
 Règles :
 - Péremption au format AAAA-MM-JJ ; si seul le mois est indiqué, mets le dernier jour du mois.
 - Nombre de flacons : lis-le sur la boîte ("2 x 50 mL" = 2, "R1 4 x 20 mL + R2 1 x 20 mL" = 5, "boîte de 10" = 10) → flacons_source "boite".
-- S'il n'est pas imprimé${$("websearch").checked ? ", cherche sur Internet (site du fabricant, fiche technique, catalogue) avec la marque et la référence → flacons_source \"internet\"" : ""}. Sinon, d'après ta connaissance → "estime". Introuvable → null et "inconnu".
+- S'il n'est pas imprimé${web ? ", cherche sur Internet (site du fabricant, fiche technique, catalogue) avec la marque et la référence → flacons_source \"internet\"" : ""}. Sinon, d'après ta connaissance → "estime". Introuvable → null et "inconnu".
 - Ne devine jamais un lot ni une date : chaîne vide si illisible.
-Termine ta réponse par ce JSON seul :
+Termine ta réponse par ce JSON seul (pour "flacons_detail", donne la référence ou le conditionnement utilisé) :
 {"nom":"","marque":"","reference":"","lot":"","peremption":"","flacons_par_coffret":null,"flacons_source":"boite","flacons_detail":"","code_barres":""}`;
-    const r = await callClaude([...imgs, {type:"text", text:prompt}]);
+    let r;
+    if (useGemini) r = await callGemini(shots.map(s=>s.blob), prompt);
+    else {
+      const imgs = await Promise.all(shots.map(async s=>({type:"image", source:{type:"base64", media_type:"image/jpeg", data:await blobToB64(s.blob)}})));
+      r = await callClaude([...imgs, {type:"text", text:prompt}]);
+    }
     const rec = {
       nom: [r.nom, r.reference && !(r.nom||"").includes(r.reference) ? "("+r.reference+")" : ""].filter(Boolean).join(" ").trim() || "Produit non identifié",
       marque: r.marque||"", lot: gs1?.lot || r.lot || "", peremption: gs1?.peremption || (/^\d{4}-\d{2}-\d{2}$/.test(r.peremption||"") ? r.peremption : ""),
